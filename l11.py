@@ -18,9 +18,10 @@ class Model(nn.Module):
         return self.layers(x)
 
 model = Model()
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Version: {torch.__version__}, GPU: {torch.cuda.is_available()}, NUM_GPU: {torch.cuda.device_count()}")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model.to(device)
+
 def train(model):
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
