@@ -1,12 +1,13 @@
 from torch import nn
 import torch
+import tqdm
 import random
 
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(1, 32),
+            nn.Linear(2, 32),
             nn.ReLU(),
             nn.Linear(32, 32),
             nn.ReLU(),
@@ -17,20 +18,27 @@ class Model(nn.Module):
         return self.layers(x)
 
 model = Model()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(f"Version: {torch.__version__}, GPU: {torch.cuda.is_available()}, NUM_GPU: {torch.cuda.device_count()}")
+model.to(device)
 def train(model):
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    for i in range(10000):
-        x = random.random()*10
-        x = torch.tensor([[x]], dtype=torch.float)
-        y = x * 2
+
+    for i in tqdm.tqdm(range(100000)):
+        a = random.random()
+        b = random.random()
+        x = torch.tensor([[a, b]], dtype=torch.float)
+        y = torch.tensor([[a+b]], dtype=torch.float)
         optimizer.zero_grad()
         pred = model(x)
         loss = loss_fn(pred, y)
         loss.backward()
         optimizer.step()
-        print(f"epoch: {i}, loss: {loss}")
 
 train(model)
-print(model(torch.tensor([[5.0]])))
+while True:
+    inputa = input("A: ")
+    inputb = input("B: ")
+    print(model(torch.tensor([[float(inputa), float(inputb)]])).item())
 
