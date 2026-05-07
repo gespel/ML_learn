@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
+import tqdm
 
 # ============================================
 # Kleines Language Model (Transformer-basiert)
@@ -190,13 +191,19 @@ class TextDataset(Dataset):
 def train_model():
     """Training Beispiel"""
     # Text für Training
-    text = """Das ist ein kleines Sprachmodell. Es lernt, Text zu generieren. Das Modell basiert auf Transformern. Transformers sind sehr mächtig. Hallo Sten!"""
+    #text = """Das ist ein kleines Sprachmodell. Es lernt, Text zu generieren. Das Modell basiert auf Transformern. Transformers sind sehr mächtig. Hallo Sten!"""
     
+    text = """Baden-Württemberg ([ˌbaːdn̩ˈvʏrtəmbɛrk] ⓘ; Abkürzung BW; amtlich Land Baden-Württemberg) ist ein Land im Südwesten von Deutschland.[6][7] Gemäß seiner Verfassung hat es die Staatsform einer parlamentarischen Republik und ist ein teilsouveräner Gliedstaat der Bundesrepublik Deutschland. Sowohl nach Einwohnerzahl als auch bezüglich der Fläche steht Baden-Württemberg an dritter Stelle der deutschen Länder. Bevölkerungsreichste Stadt ist die Landeshauptstadt Stuttgart, gefolgt von Mannheim und Karlsruhe. Weitere Großstädte sind Freiburg im Breisgau, Heidelberg, Ulm, Heilbronn, Pforzheim und Reutlingen.
+
+Das Land entstand 1952 durch den Zusammenschluss der nach dem Zweiten Weltkrieg gebildeten Länder Württemberg-Baden, (Süd-)Baden und Württemberg-Hohenzollern. Somit steht es in der Tradition der alten Länder Baden und Württemberg sowie der Hohenzollernschen Lande. Baden-Württemberg ist naturräumlich geprägt von seinen Anteilen an der Oberrheinischen Tiefebene und Mittelgebirgen wie dem Schwarzwald, dem Südwestdeutschen Schichtstufenland mit der Schwäbischen Alb und dem Alpenvorland nördlich des Bodensees.
+
+Baden-Württemberg ist das deutsche Land mit den höchsten Exporten (2023),[8] der zweitniedrigsten Arbeitslosenquote (Juli 2024),[9] dem vierthöchsten Bruttoinlandsprodukt (BIP) pro Kopf (2024)[10] sowie den meisten angemeldeten Patenten pro Kopf (2023)[11] und den absolut und relativ höchsten Forschungs- und Entwicklungsausgaben (2021).[12] Die durchschnittliche Lebenserwartung lag im Zeitraum 2018/20 bei 79,9 Jahren für Männer und bei 84,2 Jahren für Frauen, womit beide unter den deutschen Bundesländern jeweils den ersten Rang belegen."""
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     # Tokenizer
-    tokenizer = BPETokenizer(text, vocab_size=100)
+    tokenizer = BPETokenizer(text, vocab_size=1000)
     print(f"Vokabulgröße: {tokenizer.vocab_size}")
     
     # Dataset und DataLoader
@@ -218,8 +225,8 @@ def train_model():
     loss_fn = nn.CrossEntropyLoss()
     
     # Training loop
-    num_epochs = 500
-    for epoch in range(num_epochs):
+    num_epochs = 20
+    for epoch in tqdm.tqdm(range(num_epochs)):
         total_loss = 0
         for x_batch, y_batch in dataloader:
             x_batch = x_batch.to(device)
@@ -236,17 +243,17 @@ def train_model():
             
             total_loss += loss.item()
         
-        if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(dataloader):.4f}")
+        #if (epoch + 1) % 10 == 0:
+        #    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(dataloader):.4f}")
     
     # Text generieren
     print("\n=== Text Generierung ===")
     model.eval()
-    seed_text = "Hal"
+    seed_text = "Das ist ein"
     seed_tokens = torch.tensor([tokenizer.encode(seed_text)], device=device)
     
     generated = seed_text
-    for _ in range(3):
+    for _ in range(30):
         with torch.no_grad():
             logits = model(seed_tokens)
             next_token_logits = logits[0, -1, :]
