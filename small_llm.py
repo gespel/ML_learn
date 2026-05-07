@@ -8,19 +8,56 @@ import numpy as np
 # Kleines Language Model (Transformer-basiert)
 # ============================================
 
-class SimpleTokenizer:
-    """Einfacher Character-Level Tokenizer"""
-    def __init__(self, text):
-        self.chars = sorted(list(set(text)))
-        self.char_to_idx = {ch: idx for idx, ch in enumerate(self.chars)}
-        self.idx_to_char = {idx: ch for ch, idx in self.char_to_idx.items()}
-        self.vocab_size = len(self.chars)
+class BPETokenizer:
+    """Byte-Pair Encoding Tokenizer (Subword Token)"""
+    def __init__(self, text, vocab_size=300):
+        from collections import defaultdict, Counter
+        
+        # Starte mit Zeichen
+        tokens = list(text.lower())
+        vocab = set(tokens)
+        
+        # Merging-Iterationen
+        for _ in range(vocab_size - len(vocab)):
+            # Finde häufigste Paare
+            pairs = defaultdict(int)
+            for i in range(len(tokens) - 1):
+                pairs[tuple(tokens[i:i+2])] += 1
+            
+            if not pairs:
+                break
+            
+            best = max(pairs, key=pairs.get)
+            vocab.add(''.join(best))
+            tokens = self._merge_pair(tokens, best)
+        
+        self.vocab = sorted(vocab)
+        self.token_to_idx = {tok: idx for idx, tok in enumerate(self.vocab)}
+        self.idx_to_token = {idx: tok for tok, idx in self.token_to_idx.items()}
+        self.vocab_size = len(self.vocab)
+    
+    def _merge_pair(self, tokens, pair):
+        merged = []
+        i = 0
+        while i < len(tokens):
+            if i < len(tokens) - 1 and tuple(tokens[i:i+2]) == pair:
+                merged.append(''.join(pair))
+                i += 2
+            else:
+                merged.append(tokens[i])
+                i += 1
+        return merged
     
     def encode(self, text):
-        return [self.char_to_idx[ch] for ch in text]
+        tokens = list(text.lower())
+        for _ in range(10):  # Greedy merging
+            for pair in self.vocab:
+                if len(pair) > 1:
+                    tokens = self._merge_pair(tokens, tuple(pair))
+        return [self.token_to_idx.get(t, 0) for t in tokens]
     
     def decode(self, indices):
-        return ''.join([self.idx_to_char[idx] for idx in indices])
+        return ''.join([self.idx_to_token.get(idx, '') for idx in indices])
 
 
 class Attention(nn.Module):
@@ -153,17 +190,13 @@ class TextDataset(Dataset):
 def train_model():
     """Training Beispiel"""
     # Text für Training
-    text = """Das ist ein kleines Sprachmodell.
-    Es lernt, Text zu generieren.
-    Das Modell basiert auf Transformern.
-    Transformers sind sehr mächtig.
-    """
+    text = """Das ist ein kleines Sprachmodell. Es lernt, Text zu generieren. Das Modell basiert auf Transformern. Transformers sind sehr mächtig. Hallo Sten!"""
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     # Tokenizer
-    tokenizer = SimpleTokenizer(text)
+    tokenizer = BPETokenizer(text, vocab_size=100)
     print(f"Vokabulgröße: {tokenizer.vocab_size}")
     
     # Dataset und DataLoader
@@ -209,11 +242,11 @@ def train_model():
     # Text generieren
     print("\n=== Text Generierung ===")
     model.eval()
-    seed_text = "Das ist"
+    seed_text = "Hal"
     seed_tokens = torch.tensor([tokenizer.encode(seed_text)], device=device)
     
     generated = seed_text
-    for _ in range(50):
+    for _ in range(3):
         with torch.no_grad():
             logits = model(seed_tokens)
             next_token_logits = logits[0, -1, :]
