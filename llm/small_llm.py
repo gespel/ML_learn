@@ -2,63 +2,31 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-import numpy as np
 import tqdm
 
 # ============================================
 # Kleines Language Model (Transformer-basiert)
 # ============================================
 
-class BPETokenizer:
-    """Byte-Pair Encoding Tokenizer (Subword Token)"""
-    def __init__(self, text, vocab_size=300):
-        from collections import defaultdict, Counter
-        
-        # Starte mit Zeichen
-        tokens = list(text.lower())
-        vocab = set(tokens)
-        
-        # Merging-Iterationen
-        for _ in range(vocab_size - len(vocab)):
-            # Finde häufigste Paare
-            pairs = defaultdict(int)
-            for i in range(len(tokens) - 1):
-                pairs[tuple(tokens[i:i+2])] += 1
-            
-            if not pairs:
-                break
-            
-            best = max(pairs, key=pairs.get)
-            vocab.add(''.join(best))
-            tokens = self._merge_pair(tokens, best)
-        
-        self.vocab = sorted(vocab)
-        self.token_to_idx = {tok: idx for idx, tok in enumerate(self.vocab)}
-        self.idx_to_token = {idx: tok for tok, idx in self.token_to_idx.items()}
-        self.vocab_size = len(self.vocab)
-    
-    def _merge_pair(self, tokens, pair):
-        merged = []
-        i = 0
-        while i < len(tokens):
-            if i < len(tokens) - 1 and tuple(tokens[i:i+2]) == pair:
-                merged.append(''.join(pair))
-                i += 2
-            else:
-                merged.append(tokens[i])
-                i += 1
-        return merged
+class SimpleTokenizer:
+    """Einfacher Character-Level Tokenizer"""
+    def __init__(self, text):
+        # Alle einzigartigen Zeichen
+        self.chars = sorted(list(set(text)))
+        self.vocab_size = len(self.chars)
+        self.char_to_idx = {ch: i for i, ch in enumerate(self.chars)}
+        self.idx_to_char = {i: ch for i, ch in enumerate(self.chars)}
     
     def encode(self, text):
-        tokens = list(text.lower())
-        for _ in range(10):  # Greedy merging
-            for pair in self.vocab:
-                if len(pair) > 1:
-                    tokens = self._merge_pair(tokens, tuple(pair))
-        return [self.token_to_idx.get(t, 0) for t in tokens]
+        return [self.char_to_idx.get(ch, 0) for ch in text]
     
     def decode(self, indices):
-        return ''.join([self.idx_to_token.get(idx, '') for idx in indices])
+        chars = []
+        for idx in indices:
+            if isinstance(idx, torch.Tensor):
+                idx = idx.item()
+            chars.append(self.idx_to_char.get(idx, '?'))
+        return ''.join(chars)
 
 
 class Attention(nn.Module):
@@ -90,7 +58,7 @@ class Attention(nn.Module):
         V = V.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         
         # Scaled dot-product attention
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / np.sqrt(self.head_dim)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim ** 0.5)
         
         if mask is not None:
             scores = scores.masked_fill(mask == 0, float('-inf'))
@@ -199,20 +167,21 @@ def train_model():
     print(f"Using device: {device}")
     
     # Tokenizer
-    tokenizer = BPETokenizer(text, vocab_size=1000)
+    tokenizer = SimpleTokenizer(text)
     print(f"Vokabulgröße: {tokenizer.vocab_size}")
+    print(f"Zeichen: {tokenizer.chars[:20]} ...")
     
     # Dataset und DataLoader
-    dataset = TextDataset(text, tokenizer, seq_len=20)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    dataset = TextDataset(text, tokenizer, seq_len=50)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
     
     # Modell
     model = SmallLLM(
         vocab_size=tokenizer.vocab_size,
-        d_model=64,
+        d_model=128,
         num_heads=4,
-        num_layers=4,
-        d_ff=256,
+        num_layers=3,
+        d_ff=512,
         max_seq_len=100
     ).to(device)
     
@@ -221,7 +190,7 @@ def train_model():
     loss_fn = nn.CrossEntropyLoss()
     
     # Training loop
-    num_epochs = 20
+    num_epochs = 5000
     for epoch in tqdm.tqdm(range(num_epochs)):
         total_loss = 0
         for x_batch, y_batch in dataloader:
@@ -246,20 +215,24 @@ def train_model():
     print("\n=== Text Generierung ===")
     model.eval()
     seed_text = "Baden"
-    seed_tokens = torch.tensor([tokenizer.encode(seed_text)], device=device)
+    seed_tokens = torch.tensor(tokenizer.encode(seed_text), dtype=torch.long).unsqueeze(0).to(device)
     
     generated = seed_text
-    for _ in range(300):
+    
+    for _ in range(100):
         with torch.no_grad():
             logits = model(seed_tokens)
             next_token_logits = logits[0, -1, :]
-            next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0).unsqueeze(0)
+            next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0)
             generated += tokenizer.decode([next_token.item()])
-            seed_tokens = torch.cat([seed_tokens, next_token], dim=1)
+            seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
             if seed_tokens.shape[1] > 100:
                 seed_tokens = seed_tokens[:, -100:]
-    
     print(generated)
+    
+    # Modell speichern
+    torch.save(model.state_dict(), 'small_llm_model.pt')
+    print("\nModell gespeichert als: small_llm_model.pt")
 
 
 if __name__ == "__main__":
