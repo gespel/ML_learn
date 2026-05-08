@@ -199,7 +199,7 @@ def train_model():
     loss_fn = nn.CrossEntropyLoss()
     
     # Training loop
-    num_epochs = 10
+    num_epochs = 100
     for epoch in range(num_epochs):
         total_loss = 0
         progress = tqdm.tqdm(
