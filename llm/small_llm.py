@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -126,6 +128,8 @@ class SmallLLM(nn.Module):
     def forward(self, x, mask=None):
         seq_len = x.shape[1]
         positions = torch.arange(seq_len, device=x.device).unsqueeze(0).expand(x.shape[0], -1)
+        if mask is None:
+            mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device)).unsqueeze(0).unsqueeze(0)
         
         # Embeddings
         x = self.token_embedding(x) + self.position_embedding(positions)
@@ -159,9 +163,12 @@ class TextDataset(Dataset):
 def train_model():
     """Training Beispiel"""
     # Text für Training
-    #text = """Das ist ein kleines Sprachmodell. Es lernt, Text zu generieren. Das Modell basiert auf Transformern. Transformers sind sehr mächtig. Hallo Sten!"""
-    
-    text = """Baden-Württemberg ist ein Land im Südwesten von Deutschland. Gemäß seiner Verfassung hat es die Staatsform einer parlamentarischen Republik und ist ein teilsouveräner Gliedstaat der Bundesrepublik Deutschland. Sowohl nach Einwohnerzahl als auch bezüglich der Fläche steht Baden-Württemberg an dritter Stelle der deutschen Länder. Bevölkerungsreichste Stadt ist die Landeshauptstadt Stuttgart, gefolgt von Mannheim und Karlsruhe. Weitere Großstädte sind Freiburg im Breisgau, Heidelberg, Ulm, Heilbronn, Pforzheim und Reutlingen. Das Land entstand 1952 durch den Zusammenschluss der nach dem Zweiten Weltkrieg gebildeten Länder Württemberg-Baden, (Süd-)Baden und Württemberg-Hohenzollern. Somit steht es in der Tradition der alten Länder Baden und Württemberg sowie der Hohenzollernschen Lande. Baden-Württemberg ist naturräumlich geprägt von seinen Anteilen an der Oberrheinischen Tiefebene und Mittelgebirgen wie dem Schwarzwald, dem Südwestdeutschen Schichtstufenland mit der Schwäbischen Alb und dem Alpenvorland nördlich des Bodensees. Baden-Württemberg ist das deutsche Land mit den höchsten Exporten der zweitniedrigsten Arbeitslosenquote , dem vierthöchsten Bruttoinlandsprodukt (BIP) pro Kopf (2024)[10] sowie den meisten angemeldeten Patenten pro Kopf (2023)[11] und den absolut und relativ höchsten Forschungs- und Entwicklungsausgaben (2021).Die durchschnittliche Lebenserwartung lag im Zeitraum 2018/20 bei 79,9 Jahren für Männer und bei 84,2 Jahren für Frauen, womit beide unter den deutschen Bundesländern jeweils den ersten Rang belegen."""
+    text = ""
+
+    for file in os.listdir("../.storage"):
+        if file.endswith(".txt"):
+            with open(os.path.join("../.storage", file), "r", encoding="utf-8") as f:
+                text += f.read() + "\n"
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -174,6 +181,8 @@ def train_model():
     # Dataset und DataLoader
     dataset = TextDataset(text, tokenizer, seq_len=50)
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    print(f"Datensätze: {len(dataset)}")
+    print(f"Batches pro Epoche: {len(dataloader)}")
     
     # Modell
     model = SmallLLM(
@@ -181,7 +190,7 @@ def train_model():
         d_model=128,
         num_heads=4,
         num_layers=3,
-        d_ff=512,
+        d_ff=256,
         max_seq_len=100
     ).to(device)
     
@@ -190,10 +199,15 @@ def train_model():
     loss_fn = nn.CrossEntropyLoss()
     
     # Training loop
-    num_epochs = 5000
-    for epoch in tqdm.tqdm(range(num_epochs)):
+    num_epochs = 10
+    for epoch in range(num_epochs):
         total_loss = 0
-        for x_batch, y_batch in dataloader:
+        progress = tqdm.tqdm(
+            dataloader,
+            desc=f"Epoch {epoch + 1}/{num_epochs}",
+            leave=False,
+        )
+        for batch_idx, (x_batch, y_batch) in enumerate(progress, start=1):
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
             
@@ -207,9 +221,17 @@ def train_model():
             optimizer.step()
             
             total_loss += loss.item()
+            avg_loss = total_loss / batch_idx
+            progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.4f}")
+
+            #if batch_idx == 1 or batch_idx % 50 == 0:
+            #    print(
+            #        f"Epoch {epoch + 1}/{num_epochs} | Batch {batch_idx}/{len(dataloader)} | "
+            #        f"Loss: {loss.item():.4f} | Avg: {avg_loss:.4f}"
+            #    )
         
-        #if (epoch + 1) % 10 == 0:
-        #    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(dataloader):.4f}")
+        epoch_loss = total_loss / max(1, len(dataloader))
+        print(f"Epoch {epoch + 1}/{num_epochs} abgeschlossen | Durchschnitts-Loss: {epoch_loss:.4f}")
     
     # Text generieren
     print("\n=== Text Generierung ===")
@@ -218,12 +240,22 @@ def train_model():
     seed_tokens = torch.tensor(tokenizer.encode(seed_text), dtype=torch.long).unsqueeze(0).to(device)
     
     generated = seed_text
+    temperature = 0.9
+    top_k = 10
     
     for _ in range(100):
         with torch.no_grad():
             logits = model(seed_tokens)
-            next_token_logits = logits[0, -1, :]
-            next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0)
+            next_token_logits = logits[0, -1, :] / temperature
+
+            if top_k is not None and top_k > 0:
+                values, indices = torch.topk(next_token_logits, min(top_k, next_token_logits.shape[-1]))
+                filtered_logits = torch.full_like(next_token_logits, float('-inf'))
+                filtered_logits[indices] = values
+                next_token_logits = filtered_logits
+
+            probs = torch.softmax(next_token_logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
             generated += tokenizer.decode([next_token.item()])
             seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
             if seed_tokens.shape[1] > 100:
