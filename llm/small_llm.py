@@ -177,6 +177,12 @@ def train_model():
     tokenizer = SimpleTokenizer(text)
     print(f"Vokabulgröße: {tokenizer.vocab_size}")
     print(f"Zeichen: {tokenizer.chars[:20]} ...")
+
+    # Tokenizer speichern
+    import pickle
+    with open('tokenizer.pkl', 'wb') as f:
+        pickle.dump(tokenizer, f)
+    print("Tokenizer gespeichert als: tokenizer.pkl")
     
     # Dataset und DataLoader
     dataset = TextDataset(text, tokenizer, seq_len=50)
@@ -286,34 +292,51 @@ def train_model():
     torch.save(model.state_dict(), 'small_llm_model.pt')
     print("\nModell gespeichert als: small_llm_model.pt")
     print("Checkpoint gespeichert als: small_llm_checkpoint.pt")
+    
+
 
 def generate_text(input: str):
+    import pickle
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     checkpoint_path = 'small_llm_checkpoint.pt'
+    tokenizer_path = 'tokenizer.pkl'
 
-    text = ""
-
-    for file in os.listdir("../.storage"):
-        if file.endswith(".txt"):
-            with open(os.path.join("../.storage", file), "r", encoding="utf-8") as f:
-                text += f.read() + "\n"
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    # Tokenizer
-    tokenizer = SimpleTokenizer(text)
+    # Tokenizer laden
+    if os.path.exists(tokenizer_path):
+        print(f"Lade Tokenizer von {tokenizer_path}...")
+        with open(tokenizer_path, 'rb') as f:
+            tokenizer = pickle.load(f)
+    else:
+        raise FileNotFoundError(f"Tokenizer nicht gefunden: {tokenizer_path}")
+
+    model = SmallLLM(
+        vocab_size=tokenizer.vocab_size,
+        d_model=128,
+        num_heads=8,
+        num_layers=8,
+        d_ff=256,
+        max_seq_len=100
+    ).to(device)
 
     if os.path.exists(checkpoint_path):
         print(f"Lade Checkpoint von {checkpoint_path}...")
-        model = torch.load(checkpoint_path, map_location=device)
-        seed_tokens = torch.tensor(tokenizer.encode(text), dtype=torch.long).unsqueeze(0).to(device)
-        generated = text
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
+
+        seed_tokens = torch.tensor(tokenizer.encode(input), dtype=torch.long).unsqueeze(0).to(device)
+        generated = input
         temperature = 0.9
         top_k = 10
         
         for _ in range(100):
+            # Begrenze die Sequenzlänge auf max_seq_len
+            if seed_tokens.shape[1] > 99:
+                seed_tokens = seed_tokens[:, -99:]
+            
             with torch.no_grad():
                 logits = model(seed_tokens)
                 next_token_logits = logits[0, -1, :] / temperature
@@ -328,8 +351,6 @@ def generate_text(input: str):
                 next_token = torch.multinomial(probs, num_samples=1)
                 generated += tokenizer.decode([next_token.item()])
                 seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
-                if seed_tokens.shape[1] > 100:
-                    seed_tokens = seed_tokens[:, -100:]
         print(generated)
         
 

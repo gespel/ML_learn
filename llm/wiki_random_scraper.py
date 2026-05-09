@@ -333,8 +333,6 @@ def main() -> None:
     ):
         
         saved_count += 1
-        if saved_count <= 10 or saved_count % 100 == 0:
-            logger.info("Fortschritt: %s Artikel gespeichert.", saved_count)
         if index % 100 == 0:
             logger.info("Verarbeitet: %s/%s Titel.", index, args.count)
 
