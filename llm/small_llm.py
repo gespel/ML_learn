@@ -188,8 +188,8 @@ def train_model():
     model = SmallLLM(
         vocab_size=tokenizer.vocab_size,
         d_model=128,
-        num_heads=4,
-        num_layers=3,
+        num_heads=8,
+        num_layers=8,
         d_ff=256,
         max_seq_len=100
     ).to(device)
@@ -198,9 +198,20 @@ def train_model():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_fn = nn.CrossEntropyLoss()
     
+    # Checkpoint laden wenn vorhanden
+    checkpoint_path = 'small_llm_checkpoint.pt'
+    start_epoch = 0
+    if os.path.exists(checkpoint_path):
+        print(f"Lade Checkpoint von {checkpoint_path}...")
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"Training wird ab Epoche {start_epoch} fortgesetzt.")
+    
     # Training loop
     num_epochs = 100
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         total_loss = 0
         progress = tqdm.tqdm(
             dataloader,
@@ -231,6 +242,15 @@ def train_model():
             #    )
         
         epoch_loss = total_loss / max(1, len(dataloader))
+
+        # Checkpoint speichern
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }
+        torch.save(checkpoint, checkpoint_path)
+
         print(f"Epoch {epoch + 1}/{num_epochs} abgeschlossen | Durchschnitts-Loss: {epoch_loss:.4f}")
     
     # Text generieren
@@ -262,10 +282,58 @@ def train_model():
                 seed_tokens = seed_tokens[:, -100:]
     print(generated)
     
-    # Modell speichern
+    # Final Modell speichern (zusätzlich zum Checkpoint)
     torch.save(model.state_dict(), 'small_llm_model.pt')
     print("\nModell gespeichert als: small_llm_model.pt")
+    print("Checkpoint gespeichert als: small_llm_checkpoint.pt")
+
+def generate_text(input: str):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    checkpoint_path = 'small_llm_checkpoint.pt'
+
+    text = ""
+
+    for file in os.listdir("../.storage"):
+        if file.endswith(".txt"):
+            with open(os.path.join("../.storage", file), "r", encoding="utf-8") as f:
+                text += f.read() + "\n"
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
+    # Tokenizer
+    tokenizer = SimpleTokenizer(text)
+
+    if os.path.exists(checkpoint_path):
+        print(f"Lade Checkpoint von {checkpoint_path}...")
+        model = torch.load(checkpoint_path, map_location=device)
+        seed_tokens = torch.tensor(tokenizer.encode(text), dtype=torch.long).unsqueeze(0).to(device)
+        generated = text
+        temperature = 0.9
+        top_k = 10
+        
+        for _ in range(100):
+            with torch.no_grad():
+                logits = model(seed_tokens)
+                next_token_logits = logits[0, -1, :] / temperature
+
+                if top_k is not None and top_k > 0:
+                    values, indices = torch.topk(next_token_logits, min(top_k, next_token_logits.shape[-1]))
+                    filtered_logits = torch.full_like(next_token_logits, float('-inf'))
+                    filtered_logits[indices] = values
+                    next_token_logits = filtered_logits
+
+                probs = torch.softmax(next_token_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+                generated += tokenizer.decode([next_token.item()])
+                seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
+                if seed_tokens.shape[1] > 100:
+                    seed_tokens = seed_tokens[:, -100:]
+        print(generated)
+        
 
 
 if __name__ == "__main__":
-    train_model()
+    #train_model()
+    generate_text("Baden")
