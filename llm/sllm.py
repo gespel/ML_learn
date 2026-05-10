@@ -148,8 +148,8 @@ class TextDataset(Dataset):
         return x, y
 
 def train_model():
-    """Training Beispiel"""
-    # Text für Training
+    #TODO: add model parameter store in pt file!
+
     text = ""
 
     for file in os.listdir("../.storage"):
