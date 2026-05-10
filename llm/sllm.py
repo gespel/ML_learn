@@ -1,6 +1,7 @@
 import argparse
 import os
 
+from core.tokenizer import SimpleTokenizer
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,164 +13,6 @@ import math
 # ============================================
 # Kleines Language Model (Transformer-basiert)
 # ============================================
-
-class SimpleTokenizer:
-    """Einfacher Character-Level Tokenizer"""
-    def __init__(self, text):
-        # Alle einzigartigen Zeichen
-        self.words = sorted(list(set(text)))
-        self.vocab_size = len(self.words)
-        self.word_to_idx = {word: i for i, word in enumerate(self.words)}
-        self.idx_to_word = {i: word for i, word in enumerate(self.words)}
-    
-    def encode(self, text):
-        return [self.word_to_idx.get(word, 0) for word in text]
-    
-    def decode(self, indices):
-        words = []
-        for idx in indices:
-            if isinstance(idx, torch.Tensor):
-                idx = idx.item()
-            words.append(self.idx_to_word.get(idx, '?'))
-        return ' '.join(words)
-    
-class WordTokenizer:
-    def __init__(self, text):
-        self.words = re.split("[,;|. \n]", text)
-        self.words.append(",")
-        self.words.append(".")
-        self.words.append("|")
-        self.words.append("\n")
-        self.words.append(" ")
-        self.words.append(";")
-        self.words = set(self.words)
-        self.words = list(self.words)
-        self.vocab_size = len(self.words)
-
-        print(self.vocab_size)
-        print(self.words[:10])
-
-        self.word_to_idx = {word: i for i, word in enumerate(self.words)}
-        self.idx_to_word = {i: word for i, word in enumerate(self.words)}
-    
-    def encode(self, text):
-        return [self.word_to_idx.get(word, 0) for word in text]
-    
-    def decode(self, indices):
-        words = []
-
-        for i in indices:
-            if isinstance(i, torch.Tensor):
-                i = i.item()
-            words.append(self.idx_to_word.get(i, '?'))
-        return ' '.join(words)
-
-
-class BPETokenizer:
-    """Byte Pair Encoding (BPE) Tokenizer"""
-    def __init__(self, text, vocab_size=10000, num_merges=None):
-        """
-        Args:
-            text: Trainingstext
-            vocab_size: Maximale Vokabulargröße
-            num_merges: Anzahl der Merge-Operationen (wenn None, wird vocab_size verwendet)
-        """
-        self.vocab_size = vocab_size
-        self.num_merges = num_merges or (vocab_size - 256)  # 256 für ASCII-Bytes
-        
-        # Initialisiere mit Byte-Level Tokens (0-255)
-        self.vocab = {i: bytes([i]) for i in range(256)}
-        self.merges = {}  # Speichere die Merge-Operationen
-        
-        # Trainiere BPE auf dem Text
-        self._train(text)
-        
-        # Erstelle lookup tables
-        self.token_to_idx = {v: i for i, v in self.vocab.items()}
-        self.idx_to_token = {i: v for v, i in self.token_to_idx.items()}
-    
-    def _get_stats(self, ids):
-        """Zähle die Häufigkeit aller benachbarten Token-Paare"""
-        counts = {}
-        for pair in zip(ids, ids[1:]):
-            counts[pair] = counts.get(pair, 0) + 1
-        return counts
-    
-    def _merge_pair(self, ids, pair, new_token):
-        """Ersetze alle Vorkommen eines Paares mit einem neuen Token"""
-        new_ids = []
-        i = 0
-        while i < len(ids):
-            if i < len(ids) - 1 and (ids[i], ids[i + 1]) == pair:
-                new_ids.append(new_token)
-                i += 2
-            else:
-                new_ids.append(ids[i])
-                i += 1
-        return new_ids
-    
-    def _train(self, text):
-        """Trainiere den BPE Tokenizer"""
-        # Konvertiere Text zu Byte-Sequenz
-        text_bytes = text.encode('utf-8')
-        ids = list(text_bytes)
-        
-        next_token_id = 256  # Starte nach den 256 ASCII-Tokens
-        
-        # Führe Merge-Operationen durch
-        for i in tqdm.tqdm(range(self.num_merges)):
-            stats = self._get_stats(ids)
-            
-            if not stats:
-                break
-            
-            # Finde das häufigste Paar
-            pair = max(stats, key=stats.get)
-            
-            # Speichere die Merge-Operation
-            self.merges[pair] = next_token_id
-            
-            # Füge neuen Token zum Vokabular hinzu
-            self.vocab[next_token_id] = self.vocab[pair[0]] + self.vocab[pair[1]]
-            
-            # Führe Merge durch
-            ids = self._merge_pair(ids, pair, next_token_id)
-            next_token_id += 1
-            
-            if (i + 1) % 100 == 0:
-                print(f"BPE Merge {i + 1}/{self.num_merges} | Vokabulgröße: {len(self.vocab)}")
-        
-        print(f"BPE Training abgeschlossen | Finale Vokabulgröße: {len(self.vocab)}")
-    
-    def _encode_chunk(self, text_bytes):
-        """Kodiere eine Byte-Sequenz mit den gelernten Merges"""
-        ids = list(text_bytes)
-        
-        # Wende alle gelernten Merges in Reihenfolge an
-        for pair, token_id in self.merges.items():
-            ids = self._merge_pair(ids, pair, token_id)
-        
-        return ids
-    
-    def encode(self, text):
-        """Kodiere Text zu Token-IDs"""
-        text_bytes = text.encode('utf-8')
-        return self._encode_chunk(text_bytes)
-    
-    def decode(self, token_ids):
-        """Dekodiere Token-IDs zurück zu Text"""
-        text_bytes = b''
-        for token_id in token_ids:
-            if isinstance(token_id, torch.Tensor):
-                token_id = token_id.item()
-            if token_id in self.vocab:
-                text_bytes += self.vocab[token_id]
-        
-        try:
-            return text_bytes.decode('utf-8')
-        except UnicodeDecodeError:
-            return text_bytes.decode('utf-8', errors='replace')
-
 
 class Attention(nn.Module):
     """Multi-Head Self-Attention"""
@@ -215,7 +58,6 @@ class Attention(nn.Module):
         
         return output
 
-
 class TransformerBlock(nn.Module):
     """Einzelner Transformer Block"""
     def __init__(self, d_model, num_heads, d_ff, dropout=0.1):
@@ -242,7 +84,6 @@ class TransformerBlock(nn.Module):
         x = self.norm2(x + self.dropout(ff_output))
         
         return x
-
 
 class SmallLLM(nn.Module):
     """Kleines Language Model"""
@@ -283,7 +124,6 @@ class SmallLLM(nn.Module):
         logits = self.fc_out(x)
         return logits
 
-
 class TextDataset(Dataset):
     """Dataset für Textvorhersage"""
     def __init__(self, text, tokenizer, seq_len=256):
@@ -298,7 +138,6 @@ class TextDataset(Dataset):
         x = self.tokens[idx:idx + self.seq_len]
         y = self.tokens[idx + 1:idx + self.seq_len + 1]
         return x, y
-
 
 def train_model():
     """Training Beispiel"""
@@ -397,7 +236,7 @@ def train_model():
             
             total_loss += loss.item()
             avg_loss = total_loss / batch_idx
-            progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.4f}")
+            progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
             if batch_idx % 1000 == 0:
                 # Checkpoint speichern
@@ -409,7 +248,7 @@ def train_model():
                     'total_loss': total_loss
                 }
                 torch.save(checkpoint, checkpoint_path)
-                print(f"Checkpoint gespeichert bei Epoch {epoch}, Batch {batch_idx}")
+                #print(f"Checkpoint gespeichert bei Epoch {epoch}, Batch {batch_idx}")
         
         epoch_loss = total_loss / max(1, len(dataloader))
 
@@ -424,45 +263,14 @@ def train_model():
         torch.save(checkpoint, checkpoint_path)
         last_total_loss = 0
         old_batch_idx = 0
-        print(f"Checkpoint gespeichert bei Epoch {epoch + 1}")
+        print(f"Checkpoint gespeichert bei Epoch {epoch}")
 
         print(f"Epoch {epoch}/{num_epochs} abgeschlossen | Avg Loss: {epoch_loss:.4f}")
-    
-    # Text generieren
-    print("\n=== Text Generierung ===")
-    model.eval()
-    seed_text = "Baden"
-    seed_tokens = torch.tensor(tokenizer.encode(seed_text), dtype=torch.long).unsqueeze(0).to(device)
-    
-    generated = seed_text
-    temperature = 0.9
-    top_k = 10
-    
-    for _ in range(100):
-        with torch.no_grad():
-            logits = model(seed_tokens)
-            next_token_logits = logits[0, -1, :] / temperature
-
-            if top_k is not None and top_k > 0:
-                values, indices = torch.topk(next_token_logits, min(top_k, next_token_logits.shape[-1]))
-                filtered_logits = torch.full_like(next_token_logits, float('-inf'))
-                filtered_logits[indices] = values
-                next_token_logits = filtered_logits
-
-            probs = torch.softmax(next_token_logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-            generated += tokenizer.decode([next_token.item()])
-            seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
-            if seed_tokens.shape[1] > 100:
-                seed_tokens = seed_tokens[:, -100:]
-    print(generated)
-    
+        
     # Final Modell speichern (zusätzlich zum Checkpoint)
     torch.save(model.state_dict(), 'small_llm_model.pt')
     print("\nModell gespeichert als: small_llm_model.pt")
     print("Checkpoint gespeichert als: small_llm_checkpoint.pt")
-    
-
 
 def generate_text(input: str):
     import pickle
