@@ -28,6 +28,9 @@ class Attention(nn.Module):
         self.key = nn.Linear(d_model, d_model)
         self.value = nn.Linear(d_model, d_model)
         self.fc_out = nn.Linear(d_model, d_model)
+
+        self.dropout = nn.Dropout(0.1)
+
     
     def forward(self, query, key, value, mask=None):
         batch_size = query.shape[0]
@@ -48,7 +51,12 @@ class Attention(nn.Module):
         if mask is not None:
             scores = scores.masked_fill(mask == 0, float('-inf'))
         
+        #attention_weights = torch.softmax(scores, dim=-1)
+        #output = torch.matmul(attention_weights, V)
+
         attention_weights = torch.softmax(scores, dim=-1)
+        attention_weights = self.dropout(attention_weights)
+
         output = torch.matmul(attention_weights, V)
         
         # Concatenate heads
@@ -68,7 +76,7 @@ class TransformerBlock(nn.Module):
         
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, d_ff),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(d_ff, d_model)
         )
         
@@ -166,23 +174,32 @@ def train_model():
     print("Tokenizer gespeichert als: tokenizer.pkl")
     
     # Dataset und DataLoader
-    dataset = TextDataset(text, tokenizer, seq_len=128)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataset = TextDataset(text, tokenizer, seq_len=256)
+    dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
     print(f"Datensätze: {len(dataset)}")
     print(f"Batches pro Epoche: {len(dataloader)}")
     
     # Modell
     model = SmallLLM(
         vocab_size=tokenizer.vocab_size,
-        d_model=128,
-        num_heads=4,
+        d_model=256,
+        num_heads=8,
         num_layers=6,
-        d_ff=512,
-        max_seq_len=128
+        d_ff=1024,
+        max_seq_len=256
     ).to(device)
     
     # Training setup
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=3e-4,
+        weight_decay=0.01,
+        betas=(0.9, 0.95)
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=len(dataloader) * 100
+    )
     loss_fn = nn.CrossEntropyLoss()
     
     # Checkpoint laden wenn vorhanden
@@ -233,12 +250,13 @@ def train_model():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            
+            scheduler.step()
+
             total_loss += loss.item()
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
-            if batch_idx % 1000 == 0:
+            if batch_idx % 100 == 0:
                 # Checkpoint speichern
                 checkpoint = {
                     'epoch': epoch,
@@ -291,11 +309,11 @@ def generate_text(input: str):
 
     model = SmallLLM(
         vocab_size=tokenizer.vocab_size,
-        d_model=128,
-        num_heads=4,
+        d_model=256,
+        num_heads=8,
         num_layers=6,
-        d_ff=512,
-        max_seq_len=128
+        d_ff=1024,
+        max_seq_len=256
     ).to(device)
 
     if os.path.exists(checkpoint_path):
@@ -311,8 +329,8 @@ def generate_text(input: str):
         
         for _ in range(1000):
             # Begrenze die Sequenzlänge auf max_seq_len
-            if seed_tokens.shape[1] > 99:
-                seed_tokens = seed_tokens[:, -99:]
+            if seed_tokens.shape[1] > model.max_seq_len:
+                seed_tokens = seed_tokens[:, -model.max_seq_len:]
             
             with torch.no_grad():
                 logits = model(seed_tokens)
