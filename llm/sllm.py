@@ -182,7 +182,7 @@ def train_model(batch_size=32):
     vocab_size = tokenizer.vocab_size
     d_model = 256
     num_heads = 8
-    num_layers = 6
+    num_layers = 8
     d_ff = 1024
     max_seq_len = 256
     

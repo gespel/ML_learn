@@ -18,7 +18,7 @@ import requests
 
 WIKIPEDIA_API = "https://de.wikipedia.org/w/api.php"
 INVALID_FILENAME_CHARS = re.compile(r"[<>:\"/\\|?*\x00-\x1F]")
-MAX_RANDOM_BATCH = 20
+MAX_RANDOM_BATCH = 1000
 MAX_RETRIES = 6
 MAX_BACKOFF_SECONDS = 20
 DEFAULT_REQUEST_TIMEOUT = 20
@@ -124,7 +124,7 @@ def get_random_titles(
 
     while len(titles) < count:
         batch_size = min(MAX_RANDOM_BATCH, count - len(titles))
-        logger.debug("Hole %s zufällige Titel (bisher %s/%s).", batch_size, len(titles), count)
+        logger.info("Hole %s zufällige Titel (bisher %s/%s).", batch_size, len(titles), count)
         params = {
             "action": "query",
             "format": "json",
@@ -200,7 +200,7 @@ def save_article(storage_dir: Path, title: str, text: str) -> Path:
                 break
             suffix += 1
     file_path.write_text(text, encoding="utf-8")
-    logger.debug("Artikel gespeichert: %s", file_path)
+    logger.info("Artikel gespeichert: %s", file_path)
     return file_path
 
 
@@ -250,7 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / ".storage",
+        default=Path(__file__).resolve().parents[1] / "../../.storage",
         help="Zielordner (Standard: <workspace>/.storage)",
     )
     parser.add_argument(
