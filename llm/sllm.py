@@ -147,7 +147,7 @@ class TextDataset(Dataset):
         y = self.tokens[idx + 1:idx + self.seq_len + 1]
         return x, y
 
-def train_model():
+def train_model(batch_size=32):
     #TODO: add model parameter store in pt file!
 
     text = ""
@@ -175,7 +175,7 @@ def train_model():
     
     # Dataset und DataLoader
     dataset = TextDataset(text, tokenizer, seq_len=256)
-    dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     print(f"Datensätze: {len(dataset)}")
     print(f"Batches pro Epoche: {len(dataloader)}")
 
@@ -345,6 +345,8 @@ def generate_text(input: str):
         temperature = 0.9
         top_k = 10
         
+        print(generated, end='', flush=True)
+
         for _ in range(1000):
             # Begrenze die Sequenzlänge auf max_seq_len
             if seed_tokens.shape[1] > model.max_seq_len:
@@ -362,9 +364,11 @@ def generate_text(input: str):
 
                 probs = torch.softmax(next_token_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
-                generated += tokenizer.decode([next_token.item()])
+                print(tokenizer.decode([next_token.item()]), end='', flush=True)
+                #generated += tokenizer.decode([next_token.item()])
                 seed_tokens = torch.cat([seed_tokens, next_token.unsqueeze(0)], dim=1)
-        print(generated)
+        print()
+        #print(generated)
         
 
 
