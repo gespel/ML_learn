@@ -380,11 +380,12 @@ if __name__ == "__main__":
     
     parser.add_argument('-t', '--train', action='store_true', help='Train the model')
     parser.add_argument('-g', '--generate', type=str, help='Generate text starting with the given input')
+    parser.add_argument('-b', '--batch_size', type=int, help='Set batch size for training.', default=32)
 
     args = parser.parse_args()
 
     if args.train:
-       train_model()
+       train_model(args.batch_size)
     elif args.generate:
         generate_text(args.generate)
     else:
