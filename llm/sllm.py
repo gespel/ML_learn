@@ -178,15 +178,22 @@ def train_model():
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
     print(f"Datensätze: {len(dataset)}")
     print(f"Batches pro Epoche: {len(dataloader)}")
+
+    vocab_size = tokenizer.vocab_size
+    d_model = 256
+    num_heads = 8
+    num_layers = 6
+    d_ff = 1024
+    max_seq_len = 256
     
     # Modell
     model = SmallLLM(
         vocab_size=tokenizer.vocab_size,
-        d_model=256,
-        num_heads=8,
-        num_layers=6,
-        d_ff=1024,
-        max_seq_len=256
+        d_model=d_model,
+        num_heads=num_heads,
+        num_layers=num_layers,
+        d_ff=d_ff,
+        max_seq_len=max_seq_len
     ).to(device)
     
     # Training setup
@@ -259,6 +266,12 @@ def train_model():
             if batch_idx % 100 == 0:
                 # Checkpoint speichern
                 checkpoint = {
+                    'd_model': d_model,
+                    'num_heads': num_heads,
+                    'num_layers': num_layers,
+                    'd_ff': d_ff,
+                    'max_seq_len': max_seq_len,
+                    'vocab_size': vocab_size,
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
@@ -272,6 +285,12 @@ def train_model():
 
         # Checkpoint speichern
         checkpoint = {
+            'd_model': d_model,
+            'num_heads': num_heads,
+            'num_layers': num_layers,
+            'd_ff': d_ff,
+            'max_seq_len': max_seq_len,
+            'vocab_size': vocab_size,
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
@@ -307,18 +326,17 @@ def generate_text(input: str):
     else:
         raise FileNotFoundError(f"Tokenizer nicht gefunden: {tokenizer_path}")
 
-    model = SmallLLM(
-        vocab_size=tokenizer.vocab_size,
-        d_model=256,
-        num_heads=8,
-        num_layers=6,
-        d_ff=1024,
-        max_seq_len=256
-    ).to(device)
-
     if os.path.exists(checkpoint_path):
         print(f"Lade Checkpoint von {checkpoint_path}...")
         checkpoint = torch.load(checkpoint_path, map_location=device)
+        model = SmallLLM(
+            vocab_size=checkpoint['vocab_size'],
+            d_model=checkpoint['d_model'],
+            num_heads=checkpoint['num_heads'],
+            num_layers=checkpoint['num_layers'],
+            d_ff=checkpoint['d_ff'],
+            max_seq_len=checkpoint['max_seq_len']
+        ).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
 
