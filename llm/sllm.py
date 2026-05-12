@@ -9,128 +9,12 @@ from torch.utils.data import DataLoader, Dataset
 import tqdm
 import re
 import math
+import matplotlib.pyplot as plt
+from core.modules import SmallLLM
 
 # ============================================
 # Kleines Language Model (Transformer-basiert)
 # ============================================
-
-class Attention(nn.Module):
-    """Multi-Head Self-Attention"""
-    def __init__(self, d_model, num_heads):
-        super().__init__()
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
-        
-        assert d_model % num_heads == 0, "d_model muss durch num_heads teilbar sein"
-        
-        self.query = nn.Linear(d_model, d_model)
-        self.key = nn.Linear(d_model, d_model)
-        self.value = nn.Linear(d_model, d_model)
-        self.fc_out = nn.Linear(d_model, d_model)
-
-        self.dropout = nn.Dropout(0.1)
-
-    
-    def forward(self, query, key, value, mask=None):
-        batch_size = query.shape[0]
-        
-        # Linear transformations
-        Q = self.query(query)
-        K = self.key(key)
-        V = self.value(value)
-        
-        # Split in multiple heads
-        Q = Q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        K = K.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        V = V.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        
-        # Scaled dot-product attention
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim ** 0.5)
-        
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, float('-inf'))
-        
-        #attention_weights = torch.softmax(scores, dim=-1)
-        #output = torch.matmul(attention_weights, V)
-
-        attention_weights = torch.softmax(scores, dim=-1)
-        attention_weights = self.dropout(attention_weights)
-
-        output = torch.matmul(attention_weights, V)
-        
-        # Concatenate heads
-        output = output.transpose(1, 2).contiguous()
-        output = output.view(batch_size, -1, self.d_model)
-        output = self.fc_out(output)
-        
-        return output
-
-class TransformerBlock(nn.Module):
-    """Einzelner Transformer Block"""
-    def __init__(self, d_model, num_heads, d_ff, dropout=0.1):
-        super().__init__()
-        self.attention = Attention(d_model, num_heads)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        
-        self.feed_forward = nn.Sequential(
-            nn.Linear(d_model, d_ff),
-            nn.GELU(),
-            nn.Linear(d_ff, d_model)
-        )
-        
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, x, mask=None):
-        # Self-attention with residual connection
-        attn_output = self.attention(x, x, x, mask)
-        x = self.norm1(x + self.dropout(attn_output))
-        
-        # Feed-forward with residual connection
-        ff_output = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_output))
-        
-        return x
-
-class SmallLLM(nn.Module):
-    """Kleines Language Model"""
-    def __init__(self, vocab_size, d_model=128, num_heads=4, num_layers=3, d_ff=512, max_seq_len=100):
-        super().__init__()
-        self.d_model = d_model
-        self.max_seq_len = max_seq_len
-        
-        # Embedding layers
-        self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.position_embedding = nn.Embedding(max_seq_len, d_model)
-        
-        # Transformer layers
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, d_ff)
-            for _ in range(num_layers)
-        ])
-        
-        # Output layer
-        self.fc_out = nn.Linear(d_model, vocab_size)
-        self.dropout = nn.Dropout(0.1)
-    
-    def forward(self, x, mask=None):
-        seq_len = x.shape[1]
-        positions = torch.arange(seq_len, device=x.device).unsqueeze(0).expand(x.shape[0], -1)
-        if mask is None:
-            mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device)).unsqueeze(0).unsqueeze(0)
-        
-        # Embeddings
-        x = self.token_embedding(x) + self.position_embedding(positions)
-        x = self.dropout(x)
-        
-        # Transformer blocks
-        for block in self.transformer_blocks:
-            x = block(x, mask)
-        
-        # Output
-        logits = self.fc_out(x)
-        return logits
 
 class TextDataset(Dataset):
     """Dataset für Textvorhersage"""
@@ -148,6 +32,13 @@ class TextDataset(Dataset):
         return x, y
 
 def train_model(batch_size=32):
+
+    plt.ion()
+    #x = [0]
+    #y = [2]
+    #graph = plt.plot(x,y)[0]
+    #plt.pause(1)
+
     #TODO: add model parameter store in pt file!
 
     text = ""
@@ -181,9 +72,9 @@ def train_model(batch_size=32):
 
     vocab_size = tokenizer.vocab_size
     d_model = 512
-    num_heads = 16
-    num_layers = 16
-    d_ff = 2048
+    num_heads = 8
+    num_layers = 8
+    d_ff =  1024
     max_seq_len = 512
     
     # Modell
@@ -233,6 +124,8 @@ def train_model(batch_size=32):
     
     # Training loop
     num_epochs = 100
+    x = []
+    y = []
     for epoch in range(start_epoch, num_epochs):
         total_loss = last_total_loss
         progress = tqdm.tqdm(
@@ -263,7 +156,21 @@ def train_model(batch_size=32):
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
-            if batch_idx % 100 == 0:
+            if batch_idx % 100 == 0:  
+                y.append(avg_loss)
+                x.append(batch_idx)
+                if len(x) > 2:
+                    graph.remove()
+                graph = plt.plot(x,y,color = 'g')[0]
+                plt.xlim(x[0], x[-1])
+                #plt.ylim(max(y)*0.9, max(y)*1.1)
+                ax = plt.gca()  # get the current axes
+                ax.relim()      # make sure all the data fits
+                ax.autoscale()
+                plt.pause(0.0001)
+                    
+
+            if batch_idx % 1000 == 0:
                 # Checkpoint speichern
                 checkpoint = {
                     'd_model': d_model,
