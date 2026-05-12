@@ -174,17 +174,17 @@ def train_model(batch_size=32):
     print("Tokenizer gespeichert als: tokenizer.pkl")
     
     # Dataset und DataLoader
-    dataset = TextDataset(text, tokenizer, seq_len=256)
+    dataset = TextDataset(text, tokenizer, seq_len=512)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     print(f"Datensätze: {len(dataset)}")
     print(f"Batches pro Epoche: {len(dataloader)}")
 
     vocab_size = tokenizer.vocab_size
-    d_model = 256
-    num_heads = 8
-    num_layers = 8
-    d_ff = 1024
-    max_seq_len = 256
+    d_model = 512
+    num_heads = 16
+    num_layers = 16
+    d_ff = 2048
+    max_seq_len = 512
     
     # Modell
     model = SmallLLM(
