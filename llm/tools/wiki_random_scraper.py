@@ -250,7 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "../../.storage",
+        default=Path(__file__).resolve().parents[1] / "../.storage",
         help="Zielordner (Standard: <workspace>/.storage)",
     )
     parser.add_argument(
