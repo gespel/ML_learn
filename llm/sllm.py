@@ -31,13 +31,20 @@ class TextDataset(Dataset):
         y = self.tokens[idx + 1:idx + self.seq_len + 1]
         return x, y
 
-def train_model(batch_size=32):
+
+def train_model(
+    batch_size: int = 32,
+    seq_len: int = 256,
+    d_model: int = 256,
+    num_heads: int = 4,
+    num_layers: int = 4,
+    d_ff: int = 1024,
+    max_seq_len: int = 256,
+    num_epochs: int = 30,
+):
 
     plt.ion()
-    #x = [0]
-    #y = [2]
-    #graph = plt.plot(x,y)[0]
-    #plt.pause(1)
+    graph = None
 
     #TODO: add model parameter store in pt file!
 
@@ -56,8 +63,6 @@ def train_model(batch_size=32):
     print(f"Vokabulgröße: {tokenizer.vocab_size}")
     print(f"Zeichen: {tokenizer.words[:20]} ...")
 
-    #word_tokenizer = WordTokenizer(text)
-
     # Tokenizer speichern
     import pickle
     with open('tokenizer.pkl', 'wb') as f:
@@ -65,17 +70,13 @@ def train_model(batch_size=32):
     print("Tokenizer gespeichert als: tokenizer.pkl")
     
     # Dataset und DataLoader
-    dataset = TextDataset(text, tokenizer, seq_len=512)
+    dataset = TextDataset(text, tokenizer, seq_len=seq_len)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     print(f"Datensätze: {len(dataset)}")
     print(f"Batches pro Epoche: {len(dataloader)}")
 
     vocab_size = tokenizer.vocab_size
-    d_model = 512
-    num_heads = 8
-    num_layers = 8
-    d_ff =  1024
-    max_seq_len = 512
+    # Modell-Defaults sind bewusst kleiner gewählt, damit Training pro Epoche schneller ist.
     
     # Modell
     model = SmallLLM(
@@ -96,7 +97,7 @@ def train_model(batch_size=32):
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=len(dataloader) * 100
+        T_max=max(1, len(dataloader) * num_epochs)
     )
     loss_fn = nn.CrossEntropyLoss()
     
@@ -110,23 +111,31 @@ def train_model(batch_size=32):
     if os.path.exists(checkpoint_path):
         print(f"Lade Checkpoint von {checkpoint_path}...")
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if 'batch_idx' == 0:
-            start_epoch = checkpoint['epoch'] + 1
-            old_batch_idx = 0
-            last_total_loss = 0
-        else:
-            start_epoch = checkpoint['epoch']
-        old_batch_idx = checkpoint.get('batch_idx', old_batch_idx)
-        last_total_loss = checkpoint.get('total_loss', 0)
-        print(f"Training wird ab Epoche {start_epoch} fortgesetzt. Letzter Batch-Index: {old_batch_idx}")
+        try:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        except Exception as e:
+            print(
+                "Checkpoint passt nicht zur aktuellen Modellkonfiguration "
+                f"(z.B. d_model/Layer/Heads geändert). Starte neu. Details: {e}"
+            )
+            checkpoint = None
+
+        if checkpoint is not None:
+            old_batch_idx = checkpoint.get('batch_idx', old_batch_idx)
+            last_total_loss = checkpoint.get('total_loss', 0)
+            if checkpoint.get('batch_idx', 0) == 0:
+                start_epoch = checkpoint.get('epoch', 0) + 1
+                old_batch_idx = 0
+                last_total_loss = 0
+            else:
+                start_epoch = checkpoint.get('epoch', 1)
+            print(f"Training wird ab Epoche {start_epoch} fortgesetzt. Letzter Batch-Index: {old_batch_idx}")
     
     # Training loop
-    num_epochs = 100
     x = []
     y = []
-    for epoch in range(start_epoch, num_epochs):
+    for epoch in range(start_epoch, num_epochs + 1):
         total_loss = last_total_loss
         progress = tqdm.tqdm(
             dataloader,
@@ -156,19 +165,17 @@ def train_model(batch_size=32):
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
-            if batch_idx % 100 == 0:  
+            if batch_idx % 100 == 0:
                 y.append(avg_loss)
                 x.append(batch_idx)
-                if len(x) > 2:
+                if graph is not None:
                     graph.remove()
-                graph = plt.plot(x,y,color = 'g')[0]
+                graph = plt.plot(x, y, color='g')[0]
                 plt.xlim(x[0], x[-1])
-                #plt.ylim(max(y)*0.9, max(y)*1.1)
                 ax = plt.gca()  # get the current axes
                 ax.relim()      # make sure all the data fits
                 ax.autoscale()
                 plt.pause(0.0001)
-                    
 
             if batch_idx % 1000 == 0:
                 # Checkpoint speichern
@@ -186,7 +193,6 @@ def train_model(batch_size=32):
                     'total_loss': total_loss
                 }
                 torch.save(checkpoint, checkpoint_path)
-                #print(f"Checkpoint gespeichert bei Epoch {epoch}, Batch {batch_idx}")
         
         epoch_loss = total_loss / max(1, len(dataloader))
 
@@ -288,11 +294,27 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--train', action='store_true', help='Train the model')
     parser.add_argument('-g', '--generate', type=str, help='Generate text starting with the given input')
     parser.add_argument('-b', '--batch_size', type=int, help='Set batch size for training.', default=32)
+    parser.add_argument('--seq_len', type=int, default=256, help='Sequence length for training samples (faster when smaller).')
+    parser.add_argument('--d_model', type=int, default=256, help='Transformer model width (smaller = faster).')
+    parser.add_argument('--num_heads', type=int, default=4, help='Number of attention heads.')
+    parser.add_argument('--num_layers', type=int, default=4, help='Number of transformer blocks.')
+    parser.add_argument('--d_ff', type=int, default=1024, help='Feed-forward hidden size.')
+    parser.add_argument('--max_seq_len', type=int, default=256, help='Maximum context length the model supports.')
+    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train.')
 
     args = parser.parse_args()
 
     if args.train:
-       train_model(args.batch_size)
+       train_model(
+           batch_size=args.batch_size,
+           seq_len=args.seq_len,
+           d_model=args.d_model,
+           num_heads=args.num_heads,
+           num_layers=args.num_layers,
+           d_ff=args.d_ff,
+           max_seq_len=args.max_seq_len,
+           num_epochs=args.epochs,
+       )
     elif args.generate:
         generate_text(args.generate)
     else:
