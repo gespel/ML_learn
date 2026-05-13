@@ -12,9 +12,7 @@ import math
 import matplotlib.pyplot as plt
 from core.modules import SmallLLM
 
-# ============================================
-# Kleines Language Model (Transformer-basiert)
-# ============================================
+
 
 class TextDataset(Dataset):
     """Dataset für Textvorhersage"""
@@ -65,9 +63,10 @@ def train_model(
 
     # Tokenizer speichern
     import pickle
-    with open('tokenizer.pkl', 'wb') as f:
+    tokenizer_name = f"{tokenizer.vocab_size}v.pkl"
+    with open(tokenizer_name, 'wb') as f:
         pickle.dump(tokenizer, f)
-    print("Tokenizer gespeichert als: tokenizer.pkl")
+    print(f"Tokenizer gespeichert als: {tokenizer_name}")
     
     # Dataset und DataLoader
     dataset = TextDataset(text, tokenizer, seq_len=seq_len)
@@ -102,7 +101,7 @@ def train_model(
     loss_fn = nn.CrossEntropyLoss()
     
     # Checkpoint laden wenn vorhanden
-    checkpoint_path = 'small_llm_checkpoint.pt'
+    checkpoint_path = f"{tokenizer.vocab_size}v_{d_model}md_{num_heads}h_{num_layers}l_{d_ff}ff_{max_seq_len}m.pt"
     start_epoch = 1
 
     old_batch_idx = 0
@@ -222,12 +221,36 @@ def train_model(
     print("\nModell gespeichert als: small_llm_model.pt")
     print("Checkpoint gespeichert als: small_llm_checkpoint.pt")
 
-def generate_text(input: str):
+def generate_text(seed: str):
     import pickle
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    checkpoint_path = 'small_llm_checkpoint.pt'
-    tokenizer_path = 'tokenizer.pkl'
+    import os
+    model_paths = []
+    tokenizer_paths = []
+    for file in os.listdir("."):
+        if file.endswith(".pt"):
+            model_paths.append(file)
+        elif file.endswith(".pkl"):
+            tokenizer_paths.append(file)
+
+    if len(model_paths) > 1:
+        print("Multiple models found in this folder. Choose one:")
+        for m in enumerate(model_paths):
+            print(f"[{m[0]}]: {m[1]}")
+        model_path = model_paths[int(input("> "))]
+    else:
+        model_path = model_paths[0]
+
+    if len(tokenizer_paths) > 1:
+        print("Multiple tokenizer found in this folder. Choose one:")
+        for m in enumerate(tokenizer_paths):
+            print(f"[{m[0]}]: {m[1]}")    
+        tokenizer_path = tokenizer_paths[int(input("> "))]
+    else:
+        tokenizer_path = tokenizer_paths[0]
+         
+
 
     print(f"Using device: {device}")
     
@@ -239,9 +262,9 @@ def generate_text(input: str):
     else:
         raise FileNotFoundError(f"Tokenizer nicht gefunden: {tokenizer_path}")
 
-    if os.path.exists(checkpoint_path):
-        print(f"Lade Checkpoint von {checkpoint_path}...")
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+    if os.path.exists(model_path):
+        print(f"Lade Checkpoint von {model_path}...")
+        checkpoint = torch.load(model_path, map_location=device)
         model = SmallLLM(
             vocab_size=checkpoint['vocab_size'],
             d_model=checkpoint['d_model'],
@@ -253,8 +276,8 @@ def generate_text(input: str):
         model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
 
-        seed_tokens = torch.tensor(tokenizer.encode(input), dtype=torch.long).unsqueeze(0).to(device)
-        generated = input
+        seed_tokens = torch.tensor(tokenizer.encode(seed), dtype=torch.long).unsqueeze(0).to(device)
+        generated = seed
         temperature = 0.9
         top_k = 10
         
