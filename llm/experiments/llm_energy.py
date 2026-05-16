@@ -33,6 +33,7 @@ def train_model(
     d_ff: int = 1024,
     max_seq_len: int = 256,
     num_epochs: int = 30,
+    num_of_training_steps: int = 10000,
 ):
     text = ""
 
@@ -106,22 +107,8 @@ def train_model(
             total_loss += loss.item()
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
-        
-        epoch_loss = total_loss / max(1, len(dataloader))
-        print(f"Epoch {epoch}/{num_epochs} abgeschlossen | Avg Loss: {epoch_loss:.4f}")
 
-    model = {
-        'd_model': d_model,
-        'num_heads': num_heads,
-        'num_layers': num_layers,
-        'd_ff': d_ff,
-        'max_seq_len': max_seq_len,
-        'vocab_size': vocab_size,
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'batch_idx': 0,
-        'total_loss': 0
-    }
-    torch.save(model, 'small_llm_model.pt')
-    print("\nModell saved as: small_llm_model.pt")
+            if progress >= num_of_training_steps:
+                return
+
+train_model()
