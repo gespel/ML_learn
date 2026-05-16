@@ -164,34 +164,34 @@ def train_model(
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
-            if batch_idx % 100 == 0:
-                y.append(avg_loss)
-                x.append(batch_idx)
-                if graph is not None:
-                    graph.remove()
-                graph = plt.plot(x, y, color='g')[0]
-                plt.xlim(x[0], x[-1])
-                ax = plt.gca()  # get the current axes
-                ax.relim()      # make sure all the data fits
-                ax.autoscale()
-                plt.pause(0.0001)
+            #if batch_idx % 100 == 0:
+            #    y.append(avg_loss)
+            #    x.append(batch_idx)
+            #    if graph is not None:
+            #        graph.remove()
+            #    graph = plt.plot(x, y, color='g')[0]
+            #    plt.xlim(x[0], x[-1])
+            #    ax = plt.gca()  # get the current axes
+            #    ax.relim()      # make sure all the data fits
+            #    ax.autoscale()
+            #    plt.pause(0.0001)
 
-            if batch_idx % 1000 == 0:
-                # Checkpoint speichern
-                checkpoint = {
-                    'd_model': d_model,
-                    'num_heads': num_heads,
-                    'num_layers': num_layers,
-                    'd_ff': d_ff,
-                    'max_seq_len': max_seq_len,
-                    'vocab_size': vocab_size,
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'batch_idx': batch_idx,
-                    'total_loss': total_loss
-                }
-                torch.save(checkpoint, checkpoint_path)
+            #if batch_idx % 1000 == 0:
+            #    # Checkpoint speichern
+            #    checkpoint = {
+            #        'd_model': d_model,
+            #        'num_heads': num_heads,
+            #        'num_layers': num_layers,
+            #        'd_ff': d_ff,
+            #        'max_seq_len': max_seq_len,
+            #        'vocab_size': vocab_size,
+            #        'epoch': epoch,
+            #        'model_state_dict': model.state_dict(),
+            #        'optimizer_state_dict': optimizer.state_dict(),
+            #        'batch_idx': batch_idx,
+            #        'total_loss': total_loss
+            #    }
+            #    torch.save(checkpoint, checkpoint_path)
         
         epoch_loss = total_loss / max(1, len(dataloader))
 
