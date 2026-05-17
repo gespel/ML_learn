@@ -342,3 +342,4 @@ if __name__ == "__main__":
         generate_text(args.generate)
     else:
         parser.print_help()
+
