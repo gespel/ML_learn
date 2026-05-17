@@ -1,11 +1,16 @@
 from core.modules import *
 from core.tokenizer import *
 import os
+import time
 import tqdm
 import torch
+import socket
+import json
 import torch.nn as nn
 import torch.optim as optim
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, Dataset
+import requests
 
 
 class TextDataset(Dataset):
@@ -23,6 +28,42 @@ class TextDataset(Dataset):
         y = self.tokens[idx + 1:idx + self.seq_len + 1]
         return x, y
 
+def lact_request(payload: dict) -> dict:
+    with socket.create_connection(("127.0.0.1", 12853)) as sock:
+        sock.sendall((json.dumps(payload) + "\n").encode())
+
+        response = sock.recv(4096)
+
+    return json.loads(response.decode())
+
+def set_gpu_max_frequency(freq: int) -> bool:
+    gpu_id = "1002:73AF-1EAE:6905-0000:09:00.0"
+
+    response = lact_request({
+        "command": "set_clocks_value",
+        "args": {
+            "id": gpu_id,
+            "command": {
+                "type": "max_core_clock",
+                "value": freq
+            }
+        }
+    })
+    
+    if response["status"] != "ok":
+        print("set:", response)
+
+    confirm_response = lact_request({
+        "command": "confirm_pending_config",
+        "args": {
+            "command": "confirm"
+        }
+    })
+
+    if confirm_response["status"] != "ok":
+        print("confirm:", confirm_response)
+
+    return True
 
 def train_model(
     batch_size: int = 32,
@@ -37,23 +78,23 @@ def train_model(
 ):
     text = ""
 
-    for file in os.listdir("../../.storage"):
+    for file in os.listdir("../.storage"):
         if file.endswith(".txt"):
-            with open(os.path.join("../../.storage", file), "r", encoding="utf-8") as f:
+            with open(os.path.join("../.storage", file), "r", encoding="utf-8") as f:
                 text += f.read() + "\n"
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    #print(f"Using device: {device}")
     
     # Tokenizer
     tokenizer = SimpleTokenizer(text)
-    print(f"Vokabulgröße: {tokenizer.vocab_size}")
-    print(f"Zeichen: {tokenizer.words[:20]} ...")
+    #print(f"Vokabulgröße: {tokenizer.vocab_size}")
+    #print(f"Zeichen: {tokenizer.words[:20]} ...")
     
     dataset = TextDataset(text, tokenizer, seq_len=seq_len)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    print(f"Datensätze: {len(dataset)}")
-    print(f"Batches pro Epoche: {len(dataloader)}")
+    #print(f"Datensätze: {len(dataset)}")
+    #print(f"Batches pro Epoche: {len(dataloader)}")
 
     vocab_size = tokenizer.vocab_size
 
@@ -82,6 +123,7 @@ def train_model(
     # Training loop
     x = []
     y = []
+    start_time = time.time()
     for epoch in range(0, num_epochs + 1):
         total_loss = 0
         progress = tqdm.tqdm(
@@ -108,7 +150,25 @@ def train_model(
             avg_loss = total_loss / batch_idx
             progress.set_postfix(loss=f"{loss.item():.4f}", avg=f"{avg_loss:.8f}")
 
-            if progress >= num_of_training_steps:
-                return
+            if batch_idx >= num_of_training_steps:
+                end_time = time.time()
+                return end_time - start_time
+#print(set_gpu_max_frequency(2600))
+#print(train_model())
 
-train_model()
+training_steps = 1000
+x = []
+y = []
+
+for i in range(2000, 2600, 100):
+    x.append(i)
+    print(f"Now measuring {i} Mhz")
+
+    set_gpu_max_frequency(i)
+    runtime = train_model(num_of_training_steps=training_steps)
+    it_per_second = training_steps / runtime
+    y.append(runtime)
+    print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")
+
+plt.plot(x, y)
+plt.show()
