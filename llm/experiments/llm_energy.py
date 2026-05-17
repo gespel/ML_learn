@@ -65,6 +65,18 @@ def set_gpu_max_frequency(freq: int) -> bool:
 
     return True
 
+def get_power_usage() -> float:
+    response = lact_request({
+        "command": "device_stats",
+        "args": {
+            "id": "1002:73AF-1EAE:6905-0000:09:00.0"
+        }
+    })
+
+    if response["status"] != "ok":
+        print(response)
+    return response["data"]["power"]["average"]
+
 def train_model(
     batch_size: int = 32,
     seq_len: int = 256,
@@ -153,22 +165,23 @@ def train_model(
             if batch_idx >= num_of_training_steps:
                 end_time = time.time()
                 return end_time - start_time
-#print(set_gpu_max_frequency(2600))
-#print(train_model())
+            
+def benchmark():
+    print(set_gpu_max_frequency(2600))
+    print(train_model())    
+    training_steps = 1000
+    x = []
+    y = []  
+    for i in range(2000, 2600, 100):
+        x.append(i)
+        print(f"Now measuring {i} Mhz") 
+        set_gpu_max_frequency(i)
+        runtime = train_model(num_of_training_steps=training_steps)
+        it_per_second = training_steps / runtime
+        y.append(runtime)
+        print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")  
+    plt.plot(x, y)
+    plt.show()
 
-training_steps = 1000
-x = []
-y = []
-
-for i in range(2000, 2600, 100):
-    x.append(i)
-    print(f"Now measuring {i} Mhz")
-
-    set_gpu_max_frequency(i)
-    runtime = train_model(num_of_training_steps=training_steps)
-    it_per_second = training_steps / runtime
-    y.append(runtime)
-    print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")
-
-plt.plot(x, y)
-plt.show()
+#print(get_power_usage())
+benchmark()
