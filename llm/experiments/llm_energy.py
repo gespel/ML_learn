@@ -6,7 +6,7 @@ import tqdm
 import torch
 import socket
 import json
-import threading
+import multiprocessing
 import torch.nn as nn
 import torch.optim as optim
 from matplotlib import pyplot as plt
@@ -78,16 +78,6 @@ def get_power_usage() -> float:
         print(response)
     return response["data"]["power"]["average"]
 
-def power_usage_thread(power_values, power_stop, power_lock):
-    while True:
-        with power_lock:
-            if power_stop:
-                return
-
-            p = get_power_usage()
-            power_values.append(p)
-        time.sleep(1)
-
 def train_model(
     batch_size: int = 32,
     seq_len: int = 256,
@@ -98,6 +88,7 @@ def train_model(
     max_seq_len: int = 256,
     num_epochs: int = 30,
     num_of_training_steps: int = 10000,
+    power_measurement_process: multiprocessing.Process = None
 ):
     text = ""
 
@@ -144,8 +135,8 @@ def train_model(
     loss_fn = nn.CrossEntropyLoss()
         
     # Training loop
-    x = []
-    y = []
+    if power_measurement_process is not None:
+        power_measurement_process.start()
     start_time = time.time()
     for epoch in range(0, num_epochs + 1):
         total_loss = 0
@@ -177,38 +168,65 @@ def train_model(
                 end_time = time.time()
                 return end_time - start_time
             
+def measure_power_loop(queue, interval=0.5):
+    while True:
+        try:
+            power = get_power_usage()
+            if power is not None:
+                #print(f"Current GPU Power Usage: {power:.2f} W")
+                queue.put(power)
+        except Exception as e:
+            pass
+        time.sleep(interval)
+
 def benchmark():    
-    training_steps = 1000
-    x = []
-    y = []
+    training_steps = 2000
+    clockspeed = []
+    all_runtimes = []
+    all_joules = []
     
     overall_power_values = {}
 
-    for i in range(2000, 2600, 100):
-        power_lock = threading.Lock()
-        power_stop = False
-        power_values = []
-        power_thread = threading.Thread(target = power_usage_thread, args = (power_values, power_stop, power_lock,))
 
-        power_thread.start()
-
-        x.append(i)
+    for i in range(1500, 2700, 100):
         print(f"Now measuring {i} Mhz") 
         set_gpu_max_frequency(i)
-        runtime = train_model(num_of_training_steps=training_steps)
-        it_per_second = training_steps / runtime
-        y.append(runtime)
-        print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")
         
-        power_stop = True
+        q = multiprocessing.Queue()
+        power_process = multiprocessing.Process(target=measure_power_loop, args=(q, 0.5))
+        
+        runtime = train_model(num_of_training_steps=training_steps, power_measurement_process=power_process)
+        
+        power_process.terminate()
+        power_process.join()
 
-        power_thread.join()
-
+        power_values = []
+        while not q.empty():
+            power_values.append(q.get())
+            
         overall_power_values[i] = power_values
+        
+        it_per_second = training_steps / runtime
+        avg_power = sum(power_values) / len(power_values) if power_values else 0
+        joules = avg_power * runtime
+        clockspeed.append(i)
+        all_runtimes.append(runtime)
+        all_joules.append(joules)
+        print(f"{i} Mhz has a runtime of {runtime:.2f} seconds -> {it_per_second:.2f} step/s | Avg Power: {avg_power:.2f} W | Energy: {joules:.2f} J")
 
-    print(overall_power_values)
-
-    plt.plot(x, y)
+    plt.plot(clockspeed, all_runtimes)
+    plt.xlabel("GPU Frequency (MHz)")
+    plt.ylabel("Runtime (s)")
+    plt.title("GPU Frequency vs Runtime")
+    plt.savefig("frequency_vs_runtime.png")
     plt.show()
 
-benchmark()
+    plt.plot(clockspeed, all_joules)
+    plt.xlabel("GPU Frequency (MHz)")
+    plt.ylabel("Energy (Joules)")
+    plt.title("GPU Frequency vs Energy Consumption")
+    plt.savefig("frequency_vs_energy.png")
+    plt.show()
+
+if __name__ == "__main__":
+    benchmark()
