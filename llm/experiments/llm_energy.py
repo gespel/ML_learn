@@ -6,6 +6,7 @@ import tqdm
 import torch
 import socket
 import json
+import threading
 import torch.nn as nn
 import torch.optim as optim
 from matplotlib import pyplot as plt
@@ -76,6 +77,16 @@ def get_power_usage() -> float:
     if response["status"] != "ok":
         print(response)
     return response["data"]["power"]["average"]
+
+def power_usage_thread(power_values, power_stop, power_lock):
+    while True:
+        with power_lock:
+            if power_stop:
+                return
+
+            p = get_power_usage()
+            power_values.append(p)
+        time.sleep(1)
 
 def train_model(
     batch_size: int = 32,
@@ -166,22 +177,38 @@ def train_model(
                 end_time = time.time()
                 return end_time - start_time
             
-def benchmark():
-    print(set_gpu_max_frequency(2600))
-    print(train_model())    
+def benchmark():    
     training_steps = 1000
     x = []
-    y = []  
+    y = []
+    
+    overall_power_values = {}
+
     for i in range(2000, 2600, 100):
+        power_lock = threading.Lock()
+        power_stop = False
+        power_values = []
+        power_thread = threading.Thread(target = power_usage_thread, args = (power_values, power_stop, power_lock,))
+
+        power_thread.start()
+
         x.append(i)
         print(f"Now measuring {i} Mhz") 
         set_gpu_max_frequency(i)
         runtime = train_model(num_of_training_steps=training_steps)
         it_per_second = training_steps / runtime
         y.append(runtime)
-        print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")  
+        print(f"{i} Mhz has a runtime of {runtime} seconds -> {it_per_second} step/s")
+        
+        power_stop = True
+
+        power_thread.join()
+
+        overall_power_values[i] = power_values
+
+    print(overall_power_values)
+
     plt.plot(x, y)
     plt.show()
 
-#print(get_power_usage())
 benchmark()
