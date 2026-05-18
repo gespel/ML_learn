@@ -180,7 +180,7 @@ def measure_power_loop(queue, interval=0.5):
         time.sleep(interval)
 
 def benchmark():    
-    training_steps = 2000
+    training_steps = 10000
     clockspeed = []
     all_runtimes = []
     all_joules = []
